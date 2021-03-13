@@ -1,0 +1,1231 @@
+   
+BACKUP ~PlagueWielder/backup~
+AUTHOR ~Arunsun~
+VERSION ~1.0~
+
+
+BEGIN "Plague Wielder By Arunsun"
+CLEAR_EVERYTHING
+INCLUDE ~%MOD_FOLDER%/ClassSpellTool.TPA~
+INCLUDE ~%MOD_FOLDER%/fl#add_kit_ee.tpa~
+
+//Credit to Kjeron for this function. Adapted for SPLSTATES by Arunsun
+
+DEFINE_ACTION_FUNCTION ADD_SPLSTATE STR_VAR label = ~~ RET index  BEGIN
+  OUTER_SET index = ~-1~
+  ACTION_IF FILE_CONTAINS_EVALUATED (~SPLSTATE.IDS~ ~^.+[ %TAB%]%label%\b~) BEGIN
+   COPY_EXISTING ~SPLSTATE.IDS~ override
+    COUNT_2DA_ROWS 2 rows
+    FOR (i = 0; i < rows; ++i) BEGIN
+     READ_2DA_ENTRY i 1 2 state_label
+     PATCH_IF ~%state_label%~ STRING_EQUAL_CASE ~%label%~ BEGIN
+      READ_2DA_ENTRY i 0 2 state_id
+      SET index = state_id
+     END
+    END
+   BUT_ONLY
+  END ELSE BEGIN
+   ACTION_IF (~%label%~ STRING_EQUAL ~~) BEGIN FAIL ~Missing SPLSTATE's label~ END ELSE BEGIN
+    ACTION_IF ((~%label%~ STRING_CONTAINS_REGEXP ~ ~) = 0) BEGIN FAIL ~SPLSTATE's lable cannot have spaces~ END ELSE BEGIN
+     COPY_EXISTING ~SPLSTATE.IDS~ override
+      COUNT_2DA_ROWS 2 rows
+      FOR (i = 1; i < rows; ++i) BEGIN
+       READ_2DA_ENTRY i 0 1 state_id
+       SET $occupied_slot(~%state_id%~) = 1
+      END
+       FOR (i = 0; i < 256; ++i) BEGIN
+        PATCH_IF (!VARIABLE_IS_SET $occupied_slot(~%i%~)) BEGIN
+         SET index = i
+         SET i = 256
+         PATCH_IF index <= rows BEGIN
+          INSERT_2DA_ROW index 2 ~%index% %label%~
+         END ELSE BEGIN
+          INSERT_2DA_ROW rows 2 ~%index% %label%~
+         END
+        END
+       END
+     PATCH_IF (index = ~-1~) BEGIN PATCH_FAIL ~No available slots in SPLSTATE.IDS~ END
+     BUT_ONLY
+    END
+   END
+  END
+ END
+LAF ADD_SPLSTATE STR_VAR label = ~CONTAMINATION~ RET SPLSTATE_1 = index END
+COPY ~PlagueWielder/2da/LUZKPW.2da~ override
+COPY ~PlagueWielder/2da/ZKPWCLAB.2da~ override
+COPY ~PlagueWielder/2da/duration.2da~ ~PlagueWielder/2da/duration.2da~
+  COUNT_2DA_ROWS 1 rows
+  READ_2DA_ENTRIES_NOW duration 1
+  FOR (i = 0; i < rows; ++i) BEGIN
+    READ_2DA_ENTRY_FORMER duration i 0 duration
+    SPRINT $duration("%i%") "%duration%"
+  END
+
+ACTION_PHP_EACH duration AS duration_key => duration_value BEGIN
+  COPY ~PlagueWielder/spl/basecont.spl~ ~override/ZKPW%duration_value%.spl~
+    LPF ALTER_SPELL_EFFECT
+      INT_VAR match_opcode = 321 STR_VAR resource = EVAL ~ZKPW%duration_value%~
+    END
+    LPF ALTER_SPELL_EFFECT
+      INT_VAR duration = duration_value
+    END
+    LPF ALTER_SPELL_EFFECT
+      INT_VAR parameter2 = SPLSTATE_1 match_opcode = 328
+    END
+    LPF ADD_SPELL_EFFECT
+      INT_VAR parameter1 = RESOLVE_STR_REF("Contaminated for %duration_value% seconds") opcode = 139 target = 2 timing = 4 duration = 2
+    END
+
+    LPF ADD_SPELL_EFFECT
+      INT_VAR parameter1 = RESOLVE_STR_REF("Contamination expired") opcode = 139 target = 2 timing = 4 duration = duration_value
+    END
+
+    PHP_EACH duration AS duration_key_bis => duration_value_bis BEGIN 
+      SPRINT splres "ZKPW%duration_value_bis%"
+      PATCH_IF duration_value_bis != duration_value BEGIN
+        LPF ADD_SPELL_EFFECT
+          INT_VAR opcode = 321 target = 2 parameter1 = 2
+          STR_VAR resource = EVAL ~%splres%~
+          END
+        END
+    END
+END
+
+
+COPY ~PlagueWielder/2da/cont.2da~ ~PlagueWielder/2da/cont.2da~
+  COUNT_2DA_ROWS 1 rows
+  READ_2DA_ENTRIES_NOW duration 1
+  FOR (i = 0; i < rows; ++i) BEGIN
+    READ_2DA_ENTRY_FORMER duration i 0 level
+    READ_2DA_ENTRY_FORMER duration i 1 con
+    READ_2DA_ENTRY_FORMER duration i 2 actual_duration
+    SPRINT $level("%i%") "%level%"
+    SPRINT $con("%i%") "%con%"
+    SPRINT $actual_duration("%i%") "%actual_duration%"
+    SPRINT $index("%i%") "%i%"
+  END
+
+
+DEFINE_PATCH_FUNCTION ADD_SPELL_HEADER
+INT_VAR
+  type = 0
+  location = 4
+  target = 1
+  target_number = 1
+  range = 0
+  minimum_level = 0
+  casting_speed = 0
+  projectile = 0
+
+STR_VAR 
+  icon = 0
+
+BEGIN
+  READ_LONG 0x6a effect_offset
+  INSERT_BYTES effect_offset 0x28
+  SET newOffset = effect_offset+0x28
+  WRITE_LONG 0x6a newOffset
+  SET header_length = effect_offset - 0x72
+  SET header_count = header_length/0x28
+  SET effect_sum = 0
+  FOR(i=0; i<header_count;++i) BEGIN
+    SET effect_rank_offset = 0x72+i*0x28 +0x1E
+    READ_SHORT effect_rank_offset effect_number
+    SET effect_sum = effect_number + effect_number
+  END
+  READ_LONG 0x68 ability_number
+  SET ability_number = ability_number+1
+  WRITE_LONG 0x68 ability_number
+  WRITE_BYTE effect_offset type
+  WRITE_SHORT effect_offset + 2 location
+  WRITE_ASCIIE effect_offset + 4 ~%icon%~
+  WRITE_BYTE effect_offset + 12  target
+  WRITE_BYTE effect_offset + 13  target_number
+  WRITE_SHORT effect_offset + 14 range
+  WRITE_SHORT effect_offset + 16 minimum_level
+  WRITE_SHORT effect_offset + 18 casting_speed
+  WRITE_SHORT effect_offset + 0x26 projectile
+  WRITE_SHORT effect_offset + 0x20 effect_sum
+
+
+END
+
+/*
+Insert 0x28 bytes at current Effect Offset
+Update Effect Offset = current Offset + 0x28
+Count effects = sum of existing headers' # of effect => this becomes the effect number offset
+  Get count of headers = effect_offset - 0x72 /0x28
+  init sum to 0
+  For each header
+    Read long 0x72+header_rank*0x28 +1E and add it to current sum
+Write bytes according to parameters
+*/
+
+
+
+COPY ~PlagueWielder/spl/ZKBASE.spl~ ~override/ZKPWCON.spl~
+  SAY 0x8 ~Contamination~
+  SAY 0xc ~Contamination~
+
+  SET current_level = 0
+  SET ability_number = 0
+  
+  PHP_EACH index AS index => index_value BEGIN 
+    PATCH_IF ($level("%index%") NOTEQUALS current_level) THEN BEGIN
+      
+        /*
+        If different, 
+          create a new ability with min level = level("%index%")
+          update current_level
+          update ability_number      
+        */
+        SET current_level = $level("%index%")
+        SET ability_number = ability_number + 1
+        LPF ADD_SPELL_HEADER
+          INT_VAR
+            type = 3
+            location = 4
+            target = 1
+            target_number = 1
+            range = 30
+            minimum_level = current_level
+            casting_speed = 0
+            projectile = 0
+
+          STR_VAR 
+            icon = 0
+          END
+        
+    END
+    // ADD_SPELL_EFFECT using opcode 326 with condition on constitution, resource parsed from actual duration to ability # ability_number
+
+  END
+    SET current_level = 0
+  SET ability_number = 0
+  PHP_EACH index AS index => index_value BEGIN 
+
+    PATCH_IF ($level("%index%") NOTEQUALS current_level) THEN BEGIN
+      SET current_level = $level("%index%")
+      SET ability_number = ability_number + 1
+    END
+    SET actual_duration_value = $actual_duration("%index%")
+    //PATCH_PRINT ~%index%~
+    //PATCH_PRINT ~%ability_number%~
+    //PATCH_PRINT ~%current_level%~
+    SET con_value = $con("%index%")
+    //PATCH_PRINT ~%con_value%~
+    //PATCH_PRINT ~%actual_duration_value%~
+    SPRINT splres ~ZKPW%actual_duration_value%~
+    SET power = current_level/2
+    LPF ADD_SPELL_EFFECT
+        INT_VAR opcode = 326 target = 2 parameter2 = 126 power = power parameter1 = con_value header = ability_number
+        STR_VAR resource = EVAL ~%splres%~
+        END
+  END
+COPY ~PlagueWielder/bam~ override
+COPY ~PlagueWielder/spl/ZKPWSAV.spl~ override
+  WRITE_LONG 0x8 0
+  WRITE_LONG 0xC 0
+
+COPY ~PlagueWielder/spl/ZKPWCAN.spl~ override
+  SAY 0x8 ~Contamination~
+  SAY 0xc ~Contamination~
+  SAY 0x54 ~This Cantrip applies the contamination status on a single target, unless they successfully Save vs Death. The Saving throw malus starts at 0, increasing by -1 every other level. This effect cannot be resisted through Magic Resistance.~
+  SAY 0x50 ~This Cantrip applies the contamination status on a single target, unless they successfully Save vs Death. The Saving throw malus starts at 0, increasing by -1 every other level. This effect cannot be resisted through Magic Resistance.~
+    
+
+COPY ~PlagueWielder/spl/ZKPWCAN.spl~ ~override/ZKPWCAN2.spl~
+  SAY 0x8 ~Improved Contamination~
+  SAY 0xc ~Improved Contamination~
+  SAY 0x54 ~This Cantrip applies the contamination status on a single target. This effect cannot be resisted through Magic Resistance or a saving throw.~
+  SAY 0x50 ~This Cantrip applies the contamination status on a single target. This effect cannot be resisted through Magic Resistance or a saving throw.~
+    
+  LPF ALTER_SPELL_EFFECT
+    INT_VAR savingthrow =0
+    END
+  LPF ALTER_SPELL_EFFECT
+    INT_VAR match_opcode=171
+    STR_VAR resource = ~ZKPWCAN2~
+    END  
+  LPF ALTER_SPELL_EFFECT
+    INT_VAR match_opcode=172
+    STR_VAR resource = ~ZKPWCAN2~
+    END  
+
+
+COPY ~PlagueWielder/spl/ZKPWUND.spl~ override
+  WRITE_LONG 0x8 0
+  WRITE_LONG 0xC 0
+
+
+// Passive spells
+COPY ~PlagueWielder/spl/ZKPWPO.spl~ override
+  SAY 0x8 ~Poison Immunity~
+  SAY 0xc ~Poison Immunity~
+
+COPY ~PlagueWielder/spl/ZKPWDI.spl~ override
+  SAY 0x8 ~Disease Immunity~
+  SAY 0xc ~Disease Immunity~
+
+COPY ~PlagueWielder/spl/ZKPWLD.spl~ override
+  SAY 0x8 ~Level Drain Immunity~
+  SAY 0xc ~Level Drain Immunity~
+
+COPY ~PlagueWielder/spl/ZKPWLS.spl~ override
+
+COPY ~PlagueWielder/spl/ZKPWSP.spl~ override
+
+//Actual spells
+COPY ~PlagueWielder/spl/ZKPWS11.spl~ override
+  SAY 0x8 ~Plague Touch~
+  SAY 0xc ~Plague Touch~
+  WRITE_ASCII 0x10 ~CAS_M07~
+  WRITE_SHORT 0x1c 1
+  WRITE_SHORT 0x22 9
+  SAY 0x54 ~Cast Time: 3
+Duration: 1 turn
+Range: Melee, Caster only
+Effect: Equips the caster with Plague Touch, a blunt weapon that hits as a +3 weapon, deals 1d4+1 Blunt Damage and inflict contamination onto the target as per the Contamination Cantrip~
+  SAY 0x50 ~Cast Time: 3
+Duration: 1 turn
+Range: Melee, Caster only
+Effect: Equips the caster with Plague Touch, a blunt weapon that hits as a +3 weapon, deals 1d4+1 Blunt Damage and inflict contamination onto the target as per the Contamination Cantrip~
+
+
+COPY ~PlagueWielder/itm/ZKPWS11.itm~ override
+  SAY 0x8 ~Plague Touch~
+  SAY 0xc ~Plague Touch~
+  SAY 0x54 ~Cast Time: 3
+Duration: 1 turn
+Range: Melee, Caster only
+Effect: Equips the caster with Plague Touch, a blunt weapon that hits as a +3 weapon, deals 1d4+1 Blunt Damage and inflict contamination onto the target as per the Contamination Cantrip~
+  SAY 0x50 ~Cast Time: 3
+Duration: 1 turn
+Range: Melee, Caster only
+Effect: Equips the caster with Plague Touch, a blunt weapon that hits as a +3 weapon, deals 1d4+1 Blunt Damage and inflict contamination onto the target as per the Contamination Cantrip~
+
+
+COPY ~PlagueWielder/spl/ZKPWS12.spl~ override
+  SAY 0x8 ~Degrade Health~
+  SAY 0xc ~Degrade Health~
+  WRITE_SHORT 0x1c 1
+  WRITE_ASCII 0x10 ~CAS_M07~
+  WRITE_SHORT 0x22 9
+  WRITE_LONG 0x34 1
+
+  SAY 0x54 ~Cast Time: 1
+Duration: N/A
+Range: One target in the visual Range of the caster
+Effect: Inflict 1d3 per level  of the caster Poison Damage to the target. If the target is affected by Contamination, double the damage.~
+  SAY 0x50 ~Cast Time: 1
+Duration: N/A
+Range: One target in the visual Range of the caster
+Effect: Inflict 1d3 per level  of the caster Poison Damage to the target. If the target is affected by Contamination, double the damage.~
+  FOR(i=1;i<16;++i) BEGIN
+    LPF ADD_SPELL_HEADER
+    INT_VAR
+      type = 3
+      location = 2
+      target = 1
+      target_number = 1
+      range = 30
+      minimum_level = i
+      casting_speed = 1
+      projectile = 24
+
+    STR_VAR 
+      icon = ~SPPR113B~
+    END
+  END
+  FOR(i=1;i<16;++i) BEGIN
+    LPF ADD_SPELL_EFFECT 
+        INT_VAR opcode = 12 target = 2 resist_dispel = 1 dicenumber = i dicesize = 3 parameter2 = 2097152 header = i power = 1
+    END
+
+    LPF ADD_SPELL_EFFECT
+        INT_VAR opcode = 326 target = 2 resist_dispel = 1 parameter2 = 110 power = 1 parameter1 = SPLSTATE_1 header = i
+        STR_VAR resource = ZKPWS12A
+    END
+  END
+
+
+COPY ~PlagueWielder/spl/ZKPWS12A.spl~ override
+  SAY 0x8 ~Degrade Health~
+  SAY 0xc ~Degrade Health~
+  SAY 0x50 ~Cast Time: 1
+Duration: N/A
+Range: One target in the visual Range of the caster
+Effect: Inflict 1d3 per level  of the caster Poison Damage to the target. If the target is affected by Contamination, double the damage.~
+  SAY 0x54 ~Cast Time: 1
+Duration: N/A
+Range: One target in the visual Range of the caster
+Effect: Inflict 1d3 per level  of the caster Poison Damage to the target. If the target is affected by Contamination, double the damage.~
+  FOR(i=1;i<16;++i) BEGIN
+    LPF ADD_SPELL_HEADER
+    INT_VAR
+      type = 3
+      location = 2
+      target = 1
+      target_number = 1
+      range = 30
+      minimum_level = i
+      casting_speed = 1
+      projectile = 0
+
+    STR_VAR 
+      icon = ~SPPR113B~
+    END
+  END
+
+  FOR(i=1;i<16;++i) BEGIN
+    LPF ADD_SPELL_EFFECT 
+        INT_VAR opcode = 12 target = 2 resist_dispel = 1 dicenumber = i dicesize = 3 parameter2 = 2097152 header = i power = 1
+    END
+  END
+
+COPY ~PlagueWielder/spl/ZKPWS13.spl~ override
+  SAY 0x8 ~Nausea~
+  SAY 0xc ~Nausea~
+  WRITE_ASCII 0x10 ~CAS_M08~
+  WRITE_SHORT 0x1c 1
+  WRITE_SHORT 0x22 9
+  WRITE_LONG 0x34 1
+  WRITE_ASCII 0x3a ~SPWI221C~
+  WRITE_ASCII 0x76 ~SPWI221B~
+  SAY 0x54 ~Cast Time: 5
+ Duration: 1 turn
+ Range: Everyone in the visual Range of the caster
+ Effect: Everyone within the caster's sight range who is affected by contamination suffers a debuff of -2 to AC, Hit and Saving Throws for 1 turn~
+  SAY 0x50~Cast Time: 5
+ Duration: 1 turn
+ Range: Everyone in the visual Range of the caster
+ Effect: Everyone within the caster's sight range who is affected by contamination suffers a debuff of -2 to AC, Hit and Saving Throws for 1 turn~
+  LPF ADD_SPELL_EFFECT
+      INT_VAR opcode = 326 target = 2 resist_dispel = 1 parameter2 = 110 power = 1 parameter1 = SPLSTATE_1
+      STR_VAR resource = ZKPWS13A
+  END
+
+COPY ~PlagueWielder/spl/ZKPWS13A.spl~ override
+
+COPY ~PlagueWielder/spl/ZKPWS13.spl~ ~override/ZKPWS21.SPL~
+  SAY 0x8 ~Reinfection~
+  SAY 0xc ~Reinfection~
+  WRITE_ASCII 0x10 ~CAS_M08~
+  WRITE_SHORT 0x1c 1
+  WRITE_SHORT 0x22 9
+  WRITE_ASCII 0x3a ~SPPR211C~
+  WRITE_ASCII 0x76 ~SPPR211B~
+  SAY 0x54 ~Cast Time: 5
+ Duration: N/A
+ Range: Everyone in the visual Range of the caster
+ Effect: Everyone within the caster's sight range who is affected by contamination has their contamination duration reset~
+ SAY 0x50~Cast Time: 5
+ Duration: N/A
+ Range: Everyone in the visual Range of the caster
+ Effect: Everyone within the caster's sight range who is affected by contamination has their contamination duration reset~
+  LPF ADD_SPELL_EFFECT
+      INT_VAR opcode = 326 target = 2 resist_dispel = 1 parameter2 = 110 power = 1 parameter1 = SPLSTATE_1
+      STR_VAR resource = ZKPWUND
+  END
+
+COPY ~PlagueWielder/spl/ZKPWS22.spl~ override
+  SAY 0x8 ~Protection From Contamination~
+  SAY 0xc ~Protection From Contamination~
+  WRITE_ASCII 0x10 ~CAS_M08~
+  WRITE_SHORT 0x1c 1
+  WRITE_SHORT 0x22 9
+  SAY 0x54 ~ Cast Time: 5
+ Duration: N/A
+ Range: Allies the caster's Visual Range.
+ Effect: Grant immunity to contamination to all allies in the area for 1 hour.~
+  SAY 0x50~ Cast Time: 5
+ Duration: N/A
+ Range: Allies the caster's Visual Range.
+ Effect: Grant immunity to contamination to all allies in the area for 1 hour.~
+
+  COPY ~PlagueWielder/spl/ZKPWS13.spl~ ~override/ZKPWS23.SPL~
+    SAY 0x8 ~Haemophilia~
+  SAY 0xc ~Haemophilia~
+  WRITE_ASCII 0x10 ~CAS_M08~
+  WRITE_SHORT 0x1c 1
+  WRITE_SHORT 0x22 9
+  WRITE_LONG 0x34 2
+  WRITE_ASCII 0x3a ~SPCL423C~
+  WRITE_ASCII 0x76 ~SPCL423B~
+  SAY 0x54 ~Cast Time: 4
+ Duration: 2 rounds
+ Range: Visual range of the caster
+ Effect:Everyone within the caster's sight range who is affected by contamination is affected by Haemophilia. If they take damage within the next 2 rounds, they will bleed for 2 damage per round for 1 round per level of the caster~
+  SAY 0x50~Cast Time: 4
+ Duration: 2 rounds
+ Range: Visual range of the caster
+ Effect:Everyone within the caster's sight range who is affected by contamination is affected by Haemophilia. If they take damage within the next 2 rounds, they will bleed for 2 damage per round for 1 round per level of the caster~
+    LPF ADD_SPELL_EFFECT
+        INT_VAR opcode = 326 target = 2 resist_dispel = 1 parameter2 = 110 power = 1 parameter1 = SPLSTATE_1
+        STR_VAR resource = ZKPWS23A
+    END
+  
+COPY ~PlagueWielder/spl/ZKPWS23A.spl~ override
+    LPF ADD_SPELL_EFFECT
+        INT_VAR opcode = 232 target = 1 resist_dispel = 1
+        STR_VAR resource = ZKPWS23B
+    END
+
+COPY ~PlagueWielder/spl/ZKPWS23B.spl~ override
+  FOR(i=1;i<16;++i) BEGIN
+    LPF ADD_SPELL_HEADER
+    INT_VAR
+      type = 3
+      location = 2
+      target = 1
+      target_number = 1
+      range = 30
+      minimum_level = i
+      casting_speed = 1
+      projectile = 0
+
+    STR_VAR 
+      icon = ~SPPR113B~
+    END
+  END
+  FOR(i=1;i<16;++i) BEGIN
+    FOR(j=0;j<i;++j) BEGIN
+      LPF ADD_SPELL_EFFECT 
+              INT_VAR opcode = 12 target = 2 resist_dispel = 1 parameter1 = 1 parameter2 = 134217728 header = i power = 2 timing = 3 duration = 6*j
+          END
+      LPF ADD_SPELL_EFFECT 
+              INT_VAR opcode = 12 target = 2 resist_dispel = 1 parameter1 = 1 parameter2 = 134217728 header = i power = 2 timing = 3 duration = 6*j+3
+      END
+    END
+  END
+
+  COPY ~PlagueWielder/spl/ZKPWS13.spl~ ~override/ZKPWS31.SPL~
+  SAY 0x8 ~Blood Fire~
+  SAY 0xc ~Blood Fire~
+  WRITE_ASCII 0x10 ~CAS_M08~
+  WRITE_SHORT 0x1c 1
+  WRITE_SHORT 0x22 9
+  WRITE_LONG 0x34 3
+  WRITE_SHORT 0x98 156
+  WRITE_ASCII 0x3a ~SPWI304C~
+  WRITE_ASCII 0x76 ~SPWI304B~
+  SAY 0x54 ~ Cast Time: 5
+   Duration: Instant
+   Range: Visual range of the caster
+   Effect: Everyone within the caster's sight range who is affected by contamination suffers 1d6 fire damage per level of the caster, save vs spells for half, up to 12d6.~
+  SAY 0x50~ Cast Time: 5
+   Duration: Instant
+   Range: Visual range of the caster
+   Effect: Everyone within the caster's sight range who is affected by contamination suffers 1d6 fire damage per level of the caster, save vs spells for half, up to 12d6.~
+      LPF ADD_SPELL_EFFECT
+      INT_VAR opcode = 326 target = 2 resist_dispel = 1 parameter2 = 110 power = 1 parameter1 = SPLSTATE_1
+      STR_VAR resource = ZKPWS31A
+  END
+
+COPY ~PlagueWielder/spl/ZKPWS31A.spl~ override
+  FOR(i=1;i<12;++i) BEGIN
+    LPF ADD_SPELL_HEADER
+    INT_VAR
+      type = 3
+      location = 2
+      target = 1
+      target_number = 1
+      range = 30
+      minimum_level = i
+      casting_speed = 1
+      projectile = 0
+
+    STR_VAR 
+      icon = ~SPPR113B~
+    END
+  END
+
+  FOR(i=1;i<13;++i) BEGIN
+    LPF ADD_SPELL_EFFECT 
+        INT_VAR opcode = 12 target = 2 resist_dispel = 1 dicenumber = i dicesize = 6 parameter2 = 524288 header = i power = 3 special = 0x100
+    END
+  END
+
+COPY ~PlagueWielder/spl/ZKPWS32.spl~ override
+  SAY 0x8 ~Contagion~
+  SAY 0xc ~Contagion~
+  WRITE_ASCII 0x10 ~CAS_M08~
+  WRITE_SHORT 0x1c 1
+  WRITE_SHORT 0x22 9
+  WRITE_LONG 0x34 3
+  SAY 0x54 ~Cast Time: 4
+ Duration: Instant, then Contamination duration
+ Range: Living Actor within visual range of the caster
+ Effect: Everyone within 20 ft of the target must save vs Death or be Contaminated. The difficulty of the save is the same as that of the Contamination cantrip. It is unaffected by Improved Contamination. The initial target must be contaminated for the spell to work. The initial target is also affected~
+ SAY 0x50 ~Cast Time: 4
+ Duration: Instant, then Contamination duration
+ Range: Living Actor within visual range of the caster
+ Effect: Everyone within 20 ft of the target must save vs Death or be Contaminated. The difficulty of the save is the same as that of the Contamination cantrip. It is unaffected by Improved Contamination. The initial target must be contaminated for the spell to work. The initial target is also affected~
+  LPF ADD_SPELL_EFFECT
+      INT_VAR opcode = 326 target = 2 resist_dispel = 1 parameter2 = 110 power = 1 parameter1 = SPLSTATE_1
+      STR_VAR resource = ZKPWS32A
+  END
+
+COPY ~PlagueWielder/spl/ZKPWS32A.spl~ override
+
+COPY ~PlagueWielder/spl/ZKPWS34.spl~ override
+  SAY 0x8 ~Mass Contamination~
+  SAY 0xc ~Mass Contamination~
+  WRITE_ASCII 0x10 ~CAS_M08~
+  WRITE_SHORT 0x1c 1
+  WRITE_SHORT 0x22 9
+  WRITE_LONG 0x34 3
+
+  SAY 0x54 ~Cast Time: 4
+ Duration: Instant, then Contamination duration
+ Range: Living Actor within visual range of the caster
+ Effect: Everyone within 20 ft of the target must save vs Death or be Contaminated. The difficulty of the save is the same as that of the Contamination cantrip. It is unaffected by Improved Contamination. The initial target must be contaminated for the spell to work. The initial target is also affected~
+ SAY 0x50 ~Cast Time: 4
+ Duration: Instant, then Contamination duration
+ Range: Living Actor within visual range of the caster
+ Effect: Everyone within 20 ft of the target must save vs Death or be Contaminated. The difficulty of the save is the same as that of the Contamination cantrip. It is unaffected by Improved Contamination. The initial target must be contaminated for the spell to work. The initial target is also affected~
+  LPF ADD_SPELL_EFFECT
+      INT_VAR opcode = 146 target = 2 resist_dispel = 1 parameter2 = 1 power = 1 parameter1 = SPLSTATE_1
+      STR_VAR resource = ZKPWSAV
+  END
+
+COPY ~PlagueWielder/spl/ZKPWS12.spl~ ~override/ZKPWS33.SPL~
+  SAY 0x8 ~Vampiric Plague~
+  SAY 0xc ~Vampiric Plague~
+  WRITE_SHORT 0x1c 1
+  WRITE_ASCII 0x10 ~CAS_M07~
+  WRITE_SHORT 0x22 9
+  WRITE_LONG 0x34 3
+
+  SAY 0x54 ~Cast Time: 1
+Duration: N/A
+Range: One target in the visual Range of the caster
+Effect: Inflict 1d3 per level  of the caster Poison Damage to the target. If the target is affected by Contamination, double the damage.~
+  SAY 0x50 ~Cast Time: 1
+Duration: N/A
+Range: One target in the visual Range of the caster
+Effect: Inflict 1d3 per level  of the caster Poison Damage to the target. If the target is affected by Contamination, double the damage.~
+  FOR(i=1;i<21;++i) BEGIN
+    LPF ADD_SPELL_HEADER
+    INT_VAR
+      type = 3
+      location = 2
+      target = 1
+      target_number = 1
+      range = 30
+      minimum_level = i
+      casting_speed = 1
+      projectile = 24
+
+    STR_VAR 
+      icon = ~SPPR113B~
+    END
+  END
+  FOR(i=1;i<21;++i) BEGIN
+    LPF ADD_SPELL_EFFECT 
+        INT_VAR opcode = 12 target = 2 resist_dispel = 1 dicenumber = i dicesize = 4 parameter2 = 4194304 header = i power = 3 special = 1
+    END
+
+    LPF ADD_SPELL_EFFECT
+        INT_VAR opcode = 326 target = 2 resist_dispel = 1 parameter2 = 110 power = 3 parameter1 = SPLSTATE_1 header = i
+        STR_VAR resource = ZKPWS33A
+    END
+
+    LPF ADD_SPELL_EFFECT
+        INT_VAR opcode = 326 target = 2 resist_dispel = 1 parameter2 = 111 power = 3 parameter1 = SPLSTATE_1 header = i
+        STR_VAR resource = ZKPWSAV
+    END
+  END
+
+
+COPY ~PlagueWielder/spl/ZKPWS12A.spl~ ~override/ZKPWS33A.SPL~
+  SAY 0x8 ~Vampiric Plague~
+  SAY 0xc ~Vampiric Plague~
+  SAY 0x50 ~Cast Time: 4
+ Duration: Instant
+ Range: Visual range of the caster
+ Effect: Drains a target's health, dealing 1d4 magic damage per 2 levels. If the target is contaminated, the damage is doubled. Else, it must save vs death or be contaminated. The save is made with the same malus as that of the Contamination cantrip.~
+  SAY 0x54 ~Cast Time: 4
+ Duration: Instant
+ Range: Visual range of the caster
+ Effect: Drains a target's health, dealing 1d4 magic damage per 2 levels. If the target is contaminated, the damage is doubled. Else, it must save vs death or be contaminated. The save is made with the same malus as that of the Contamination cantrip.~
+  FOR(i=1;i<21;++i) BEGIN
+    LPF ADD_SPELL_HEADER
+    INT_VAR
+      type = 3
+      location = 2
+      target = 1
+      target_number = 1
+      range = 30
+      minimum_level = i
+      casting_speed = 1
+      projectile = 0
+
+    STR_VAR 
+      icon = ~SPPR113B~
+    END
+  END
+
+  FOR(i=1;i<21;++i) BEGIN
+    LPF ADD_SPELL_EFFECT 
+        INT_VAR opcode = 12 target = 2 resist_dispel = 1 dicenumber = i dicesize = 4 parameter2 = 4194304 header = i power = 3 special = 1
+    END
+  END
+
+COPY ~PlagueWielder/spl/ZKPWS13.spl~ ~override/ZKPWS41.SPL~
+  SAY 0x8 ~Delirium~
+  SAY 0xc ~Delirium~
+  WRITE_ASCII 0x10 ~CAS_M08~
+  WRITE_SHORT 0x1c 1
+  WRITE_SHORT 0x22 9
+  WRITE_LONG 0x34 4
+  WRITE_SHORT 0x98 151
+  WRITE_ASCII 0x3a ~SPWI401C~
+  WRITE_ASCII 0x76 ~SPWI401B~
+  SAY 0x54 ~Cast Time: 4
+ Duration: 1 round per level
+ Range: Visual range of the caster
+ Effect: Everyone within the caster's sight range who is affected by contamination must save vs spells with a -1 malus or be confused for 1 turn~
+ SAY 0x50~Cast Time: 4
+ Duration: 1 round per level
+ Range: Visual range of the caster
+ Effect: Everyone within the caster's sight range who is affected by contamination must save vs spells with a -1 malus or be confused for 1 turn~
+  LPF ADD_SPELL_EFFECT
+      INT_VAR opcode = 326 target = 2 resist_dispel = 1 parameter2 = 110 power = 1 parameter1 = SPLSTATE_1
+      STR_VAR resource = ZKPWS41A
+  END
+
+COPY ~PlagueWielder/spl/ZKPWS41A.spl~ override
+
+COPY ~PlagueWielder/spl/ZKPWS42.spl~ override
+  SAY 0x8 ~Black Death Steam~
+  SAY 0xc ~Black Death Steam~
+  WRITE_SHORT 0x1c 1
+  WRITE_ASCII 0x10 ~CAS_M07~
+  WRITE_SHORT 0x22 9
+  WRITE_LONG 0x34 4
+  SAY 0x54 ~Cast Time: 4
+ Duration: 1 round per level of the caster
+ Range: Visual range of the caster
+ Effect: Creates a toxic cloud. Everyone within the cloud must save vs spells every round or be contaminated.~
+  SAY 0x50 ~Cast Time: 4
+ Duration: 1 round per level of the caster
+ Range: Visual range of the caster
+ Effect: Creates a toxic cloud. Everyone within the cloud must save vs spells every round or be contaminated.~
+
+COPY ~PlagueWielder/spl/ZKPWS51.spl~ override
+  SAY 0x8 ~Summon Minor Plague Elemental~
+  SAY 0xc ~Summon Minor Plague Elemental~
+  WRITE_SHORT 0x1c 1
+  WRITE_ASCII 0x10 ~CAS_M07~
+  WRITE_SHORT 0x22 9
+  WRITE_LONG 0x34 5
+  SAY 0x54 ~Cast Time: 1 round
+ Duration: 1 turn
+ Range: Visual range of the caster
+ Effect: Summons a Minor Plague Elemental for one turn. The Plague Elemental has 60 Hit points, -2 AC, 4 THAC0, Immunity to normal weapons. Each melee attack may poison the target and cast Contamination at level 10 onto the target, on hit.~
+  SAY 0x50 ~Cast Time: 1 round
+ Duration: 1 turn
+ Range: Visual range of the caster
+ Effect: Summons a Minor Plague Elemental for one turn. The Plague Elemental has 60 Hit points, -2 AC, 4 THAC0, Immunity to normal weapons. Each melee attack may poison the target and cast Contamination at level 10 onto the target, on hit.~
+
+COPY ~PlagueWielder/cre/ZKPWS51.cre~ override
+  SAY 0x8 ~Minor Plague Elemental~
+  SAY 0xc ~Minor Plague Elemental~
+
+COPY ~PlagueWielder/itm/ZKPWS51.itm~ override
+COPY ~PlagueWielder/eff/ZKPWS51.eff~ override
+
+COPY ~PlagueWielder/spl/ZKPWS13.spl~ ~override/ZKPWS52.SPL~
+  SAY 0x8 ~Blinding Curse~
+  SAY 0xc ~Blinding Curse~
+  WRITE_ASCII 0x10 ~CAS_M08~
+  WRITE_SHORT 0x1c 1
+  WRITE_SHORT 0x22 9
+  WRITE_LONG 0x34 5
+  WRITE_SHORT 0x98 152
+  WRITE_ASCII 0x3a ~SPPR704C~
+  WRITE_ASCII 0x76 ~SPPR704B~
+  SAY 0x54 ~Cast Time: 3
+ Duration: 1 turn
+ Range: Visual range of the caster
+ Effect: Everyone within the caster's sight range who is affected by contamination must save vs spells with a -4 malus or be blinded for 1 turn~
+ SAY 0x50~Cast Time: 3
+ Duration: 1 turn
+ Range: Visual range of the caster
+ Effect: Everyone within the caster's sight range who is affected by contamination must save vs spells with a -4 malus or be blinded for 1 turn~
+  LPF ADD_SPELL_EFFECT
+      INT_VAR opcode = 326 target = 2 resist_dispel = 1 parameter2 = 110 power = 1 parameter1 = SPLSTATE_1
+      STR_VAR resource = ZKPWS61A
+  END
+
+COPY ~PlagueWielder/spl/ZKPWS52A.spl~ override
+
+COPY ~PlagueWielder/spl/ZKPWS13.spl~ ~override/ZKPWS61.SPL~
+  SAY 0x8 ~Haemorage~
+  SAY 0xc ~Haemorage~
+  WRITE_ASCII 0x10 ~CAS_M08~
+  WRITE_SHORT 0x1c 1
+  WRITE_SHORT 0x22 9
+  WRITE_LONG 0x34 6
+  WRITE_SHORT 0x98 183
+  WRITE_ASCII 0x3a ~SPWI411C~
+  WRITE_ASCII 0x76 ~SPWI411B~
+  SAY 0x54 ~Cast Time: 4
+ Duration: 1 round per level of the caster
+ Range: Visual range of the caster
+ Effect: Everyone within the caster's sight range who is affected by contamination bleeds for 1 round per level of the caster, which deals 2 damage per round for 1 round per level of the caster~
+ SAY 0x50~Cast Time: 4
+ Duration: 1 round per level of the caster
+ Range: Visual range of the caster
+ Effect: Everyone within the caster's sight range who is affected by contamination bleeds for 1 round per level of the caster, which deals 2 damage per round for 1 round per level of the caster~
+  LPF ADD_SPELL_EFFECT
+      INT_VAR opcode = 326 target = 2 resist_dispel = 1 parameter2 = 110 power = 1 parameter1 = SPLSTATE_1
+      STR_VAR resource = ZKPWS61A
+  END
+
+COPY ~PlagueWielder/spl/ZKPWS61A.spl~ override
+
+COPY ~PlagueWielder/spl/ZKPWS13.spl~ ~override/ZKPWS62.SPL~
+  SAY 0x8 ~Brain Tapeworm~
+  SAY 0xc ~Brain Tapeworm~
+  WRITE_ASCII 0x10 ~CAS_M08~
+  WRITE_SHORT 0x1c 1
+  WRITE_SHORT 0x22 9
+  WRITE_LONG 0x34 6
+  WRITE_SHORT 0x98 150
+  WRITE_ASCII 0x3a ~SPWI409C~
+  WRITE_ASCII 0x76 ~SPWI409B~
+  SAY 0x54 ~Cast Time: 4
+ Duration: 1 round per level of the caster
+ Range: Visual range of the caster
+ Effect: Everyone within the caster's sight range who is affected by contamination must save vs Spell at -2 or be controlled by the caster for 1 round per level of the caster.~
+ SAY 0x50~Cast Time: 4
+ Duration: 1 round per level of the caster
+ Range: Visual range of the caster
+ Effect: Everyone within the caster's sight range who is affected by contamination must save vs Spell at -2 or be controlled by the caster for 1 round per level of the caster.~
+  LPF ADD_SPELL_EFFECT
+      INT_VAR opcode = 326 target = 2 resist_dispel = 1 parameter2 = 110 power = 1 parameter1 = SPLSTATE_1
+      STR_VAR resource = ZKPWS62A
+  END
+
+COPY ~PlagueWielder/spl/ZKPWS62A.spl~ override
+
+/*COPY ~PlagueWielder/spl/ZKPWS13.spl~ ~override/ZKPWS71.SPL~
+  SAY 0x8 ~Deathly Disease~
+  SAY 0xc ~Deathly Disease~
+  WRITE_ASCII 0x10 ~CAS_M08~
+  WRITE_SHORT 0x1c 1
+  WRITE_SHORT 0x22 9
+  WRITE_LONG 0x34 7
+
+  SAY 0x54 ~ Cast Time: 4
+ Duration: 1 turn
+ Range: Visual range of the caster
+ Effect: Everyone within the caster's sight range who is affected by contamination must save vs Death or be affected by Deathly Disease. When someone affected by Deathly Disease dies, it summons a greater ghast that fights on behalf of the caster for 12 rounds. ~
+ SAY 0x50~ Cast Time: 4
+ Duration: 1 turn
+ Range: Visual range of the caster
+ Effect: Everyone within the caster's sight range who is affected by contamination must save vs Death or be affected by Deathly Disease. When someone affected by Deathly Disease dies, it summons a greater ghast that fights on behalf of the caster for 12 rounds. ~
+  LPF ADD_SPELL_EFFECT
+      INT_VAR opcode = 326 target = 2 resist_dispel = 1 parameter2 = 110 power = 1 parameter1 = SPLSTATE_1
+      STR_VAR resource = ZKPWS71A
+  END
+  */
+
+COPY ~PlagueWielder/spl/ZKPWS71A.spl~ override
+COPY ~PlagueWielder/spl/ZKPWS71B.spl~ override
+
+COPY ~PlagueWielder/cre/ZKPWS71.cre~ override
+  SAY 0x8 ~Greater Ghast~
+  SAY 0xc ~Greater Ghast~
+
+COPY ~PlagueWielder/eff/ZKPWS71.eff~ override
+
+COPY ~PlagueWielder/spl/ZKPWS72.spl~ override
+  SAY 0x8 ~Summon Plague Elemental~
+  SAY 0xc ~Summon Plague Elemental~
+  WRITE_SHORT 0x1c 1
+  WRITE_ASCII 0x10 ~CAS_M07~
+  WRITE_SHORT 0x22 9
+  WRITE_LONG 0x34 7
+  SAY 0x54 ~Cast Time: 1 round
+ Duration: 1 turn
+ Range: Visual range of the caster
+ Effect: Summons a Plague Elemental for one turn. The Plague Elemental has 120 Hit points, -4 AC, 0 THAC0, Immunity to weapons up to +1 enchantment. Its melee attacks deal 2d8 blunt damage + 5 poison damage. Each of them cast Contamination at level 20 onto the target on hit.~
+  SAY 0x50 ~Cast Time: 1 round
+ Duration: 1 turn
+ Range: Visual range of the caster
+ Effect: Summons a Plague Elemental for one turn. The Plague Elemental has 120 Hit points, -4 AC, 0 THAC0, Immunity to weapons up to +1 enchantment. Its melee attacks deal 2d8 blunt damage + 5 poison damage. Each of them cast Contamination at level 20 onto the target on hit.~
+
+COPY ~PlagueWielder/cre/ZKPWS72.cre~ override
+  SAY 0x8 ~Plague Elemental~
+  SAY 0xc ~Plague Elemental~
+
+COPY ~PlagueWielder/itm/ZKPWS72.itm~ override
+COPY ~PlagueWielder/eff/ZKPWS72.eff~ override
+
+COPY ~PlagueWielder/spl/ZKPWS73.spl~ override
+  SAY 0x8 ~Organ Failure~
+  SAY 0xc ~Organ Failure~
+  WRITE_SHORT 0x1c 1
+  WRITE_ASCII 0x10 ~CAS_M07~
+  WRITE_SHORT 0x22 9
+  WRITE_LONG 0x34 7
+  SAY 0x54 ~Cast Time: 3
+ Duration: Instant
+ Range: Visual range of the caster
+ Effect: A contaminated target must save vs death at -4 or die instantly. If they survive, they suffer 1d6 poison damage per level of the caster.~
+  SAY 0x50 ~Cast Time: 3
+ Duration: Instant
+ Range: Visual range of the caster
+ Effect: A contaminated target must save vs death at -4 or die instantly. If they survive, they suffer 1d6 poison damage per level of the caster.~
+
+
+COPY ~PlagueWielder/spl/ZKPWS12A.spl~ ~override/ZKPWS73A.spl~
+  SAY 0x8 ~Organ Failure~
+  SAY 0xc ~Organ Failure~
+  FOR(i=1;i<21;++i) BEGIN
+    LPF ADD_SPELL_HEADER
+    INT_VAR
+      type = 3
+      location = 2
+      target = 1
+      target_number = 1
+      range = 30
+      minimum_level = i
+      casting_speed = 1
+      projectile = 0
+
+    STR_VAR 
+      icon = ~SPPR113B~
+    END
+  END
+
+  FOR(i=1;i<21;++i) BEGIN
+    LPF ADD_SPELL_EFFECT 
+        INT_VAR opcode = 55 target = 2 resist_dispel = 1 parameter1 = 0 parameter2 = 2 savingthrow = 2 savebonus =~-4~ header = i power = 1
+    END
+    LPF ADD_SPELL_EFFECT 
+        INT_VAR opcode = 12 target = 2 resist_dispel = 1 dicenumber = i dicesize = 6 parameter2 = 2097152 header = i power = 1
+    END
+  END
+
+COPY ~PlagueWielder/spl/ZKPWS13.spl~ ~override/ZKPWS81.SPL~
+  SAY 0x8 ~Magic Necrosis~
+  SAY 0xc ~Magic Necrosis~
+  WRITE_ASCII 0x10 ~CAS_M08~
+  WRITE_SHORT 0x1c 1
+  WRITE_SHORT 0x22 9
+  WRITE_LONG 0x34 8
+  WRITE_SHORT 0x98 155
+  WRITE_ASCII 0x3a ~SPPR310C~
+  WRITE_ASCII 0x76 ~SPPR310B~
+  SAY 0x54 ~ Cast Time: 5
+ Duration: 1 turn
+ Range: Visual range of the caster
+ Effect: Everyone in the caster's visual range who is contaminated is unable to cast spells for 1 turn. This bypasses magic resistance. ~
+SAY 0x50 ~ Cast Time: 5
+ Duration: 1 turn
+ Range: Visual range of the caster
+ Effect: Everyone in the caster's visual range who is contaminated is unable to cast spells for 1 turn. This bypasses magic resistance. ~
+  
+  LPF ADD_SPELL_EFFECT
+      INT_VAR opcode = 326 target = 2 resist_dispel = 0 parameter2 = 110 power = 1 parameter1 = SPLSTATE_1
+      STR_VAR resource = ZKPWS81A
+  END
+
+COPY ~PlagueWielder/spl/ZKPWS81A.spl~ override
+
+COPY ~PlagueWielder/spl/ZKPWS82.spl~ override
+  SAY 0x8 ~Mass Contaminating Touch~
+  SAY 0xc ~Mass Contaminating Touch~
+  WRITE_ASCII 0x10 ~CAS_M08~
+  WRITE_SHORT 0x1c 1
+  WRITE_SHORT 0x22 9
+  WRITE_LONG 0x34 8
+  SAY 0x54 ~ Cast Time: 5
+ Duration: 1 turn
+ Range: Visual range of the caster
+ Effect: For one turn, the melee weapons of every ally within visual range of the caster will deal an extra 1d6 poison damage on hit and inflict contamination onto their enemies.~
+SAY 0x50 ~ Cast Time: 5
+ Duration: 1 turn
+ Range: Visual range of the caster
+ Effect: For one turn, the melee weapons of every ally within visual range of the caster will deal an extra 1d6 poison damage on hit and inflict contamination onto their enemies.~
+
+
+COPY ~PlagueWielder/eff/ZKPWS82A.eff~ override
+COPY ~PlagueWielder/eff/ZKPWS82B.eff~ override
+
+COPY ~PlagueWielder/spl/ZKPWS13.spl~ ~override/ZKPWS91.SPL~
+  SAY 0x8 ~Mass Death~
+  SAY 0xc ~Mass Death~
+  WRITE_ASCII 0x10 ~CAS_M08~
+  WRITE_SHORT 0x1c 1
+  WRITE_SHORT 0x22 9
+  WRITE_LONG 0x34 9
+  WRITE_SHORT 0x98 154
+  WRITE_ASCII 0x3a ~SPWI605C~
+  WRITE_ASCII 0x76 ~SPWI605B~
+
+  SAY 0x54 ~ Cast Time: 7
+ Duration: Instant
+ Range: Visual range of the caster
+ Effect: Everyone within visual range of the caster who is contaminated must save vs death at -4 or die instantly. If they survive, they suffer 12d6 poison damage. ~
+SAY 0x50 ~ Cast Time: 7
+ Duration: Instant
+ Range: Visual range of the caster
+ Effect: Everyone within visual range of the caster who is contaminated must save vs death at -4 or die instantly. If they survive, they suffer 12d6 poison damage. ~
+  
+  LPF ADD_SPELL_EFFECT
+      INT_VAR opcode = 326 target = 2 resist_dispel = 0 parameter2 = 110 power = 1 parameter1 = SPLSTATE_1
+      STR_VAR resource = ZKPWS91A
+  END
+
+COPY ~PlagueWielder/spl/ZKPWS91A.spl~ override
+
+COPY ~PlagueWielder/spl/ZKPWS13.spl~ ~override/ZKPWS92.SPL~
+  SAY 0x8 ~Soul Drain~
+  SAY 0xc ~Soul Drain~
+  WRITE_ASCII 0x10 ~CAS_M08~
+  WRITE_SHORT 0x1c 1
+  WRITE_SHORT 0x22 9
+  WRITE_LONG 0x34 9
+  WRITE_SHORT 0x98 149
+  WRITE_ASCII 0x3a ~SPWI913C~
+  WRITE_ASCII 0x76 ~SPWI913B~
+
+  SAY 0x54 ~ Cast Time: 5
+ Duration: 1 turn
+ Range: Visual range of the caster
+ Effect: Absorbs a part of the soul of every contaminated enemy within the caster's visual range. Each of them suffer 6d6 Magic Damage. Their contamination is instantly removed. For each affected target, the caster restores a spell of a random level up to level 8.~
+SAY 0x50 ~ Cast Time: 5
+ Duration: 1 turn
+ Range: Visual range of the caster
+ Effect: Absorbs a part of the soul of every contaminated enemy within the caster's visual range. Each of them suffer 6d6 Magic Damage. Their contamination is instantly removed. For each affected target, the caster restores a spell of a random level up to level 8.~
+
+  LPF ADD_SPELL_EFFECT
+      INT_VAR opcode = 326 target = 2 resist_dispel = 0 parameter2 = 110 power = 1 parameter1 = SPLSTATE_1
+      STR_VAR resource = ZKPWS92A
+  END
+
+COPY ~PlagueWielder/spl/ZKPWS92A.spl~ override
+
+
+COPY ~PlagueWielder/spl/ZKPWHA1.spl~ override
+  SAY 0x8 ~Improved Contamination~
+  SAY 0xc ~Improved Contamination~
+  WRITE_ASCII 0x10 ~CAS_M08~
+  WRITE_SHORT 0x1c 4
+  WRITE_SHORT 0x22 9
+  SAY 0x54 ~The contamination Cantrip now bypasses the Saving Throw requirement. This only affect the contamination cantrip.~
+  SAY 0x50 ~The contamination Cantrip now bypasses the Saving Throw requirement. This only affect the contamination cantrip.~  
+
+
+COPY ~PlagueWielder/spl/ZKPWHA2.spl~ override
+  SAY 0x8 ~Mass Contamination~
+  SAY 0xc ~Mass Contamination~
+  WRITE_ASCII 0x10 ~CAS_M08~
+  WRITE_SHORT 0x1c 4
+  WRITE_SHORT 0x22 9
+  SAY 0x54 ~Replaces Contagion with Mass Contamination. Mass Contamination works like Contagion, except it does not require targetting a contaminated target.~
+  SAY 0x50 ~Replaces Contagion with Mass Contamination. Mass Contamination works like Contagion, except it does not require targetting a contaminated target.~  
+
+COPY ~PlagueWielder/spl/ZKPWHA3.spl~ override
+  SAY 0x8 ~Talona's Boon~
+  SAY 0xc ~Talona's Boon~
+  WRITE_ASCII 0x10 ~CAS_M08~
+  WRITE_SHORT 0x1c 4
+  WRITE_SHORT 0x22 9
+  SAY 0x54 ~When the Plague Wielder takes damage, their attacker suffers 2d6 Poison Damage and is Contaminated.~
+  SAY 0x50 ~When the Plague Wielder takes damage, their attacker suffers 2d6 Poison Damage and is Contaminated.~  
+
+COPY ~PlagueWielder/spl/ZKPWHA3A.spl~ override
+  SAY 0x8 ~Talona's Boon~
+  SAY 0xc ~Talona's Boon~
+
+COPY ~PlagueWielder/spl/ZKPWS13.spl~ ~override/ZKPWHA4.SPL~
+  SAY 0x8 ~Vampiric Contamination~
+  SAY 0xc ~Vampiric Contamination~
+  WRITE_ASCII 0x10 ~CAS_M08~
+  WRITE_SHORT 0x74 4
+  WRITE_SHORT 0x1c 4
+  WRITE_SHORT 0x22 9
+  WRITE_LONG 0x34 5
+  WRITE_SHORT 0x84 1
+  WRITE_ASCII 0x3a ~SPPR710C~
+  WRITE_ASCII 0x76 ~SPPR710B~
+  SAY 0x54 ~Everyone around the Plague Wielder who is contaminated suffers 5d4+1 Magical damage. The Plague Wielder is healed for the same amount.~
+  SAY 0x50  ~Everyone around the Plague Wielder who is contaminated suffers 5d4+1 Magical damage. The Plague Wielder is healed for the same amount.~
+  
+  LPF ADD_SPELL_EFFECT
+      INT_VAR opcode = 326 target = 2 resist_dispel = 0 parameter2 = 110 power = 1 parameter1 = SPLSTATE_1
+      STR_VAR resource = ZKPWHA4A
+  END
+    LPF ADD_SPELL_EFFECT
+      INT_VAR opcode = 172 target = 1 resist_dispel = 0 
+      STR_VAR resource = ZKPWHA4
+  END
+    LPF ADD_SPELL_EFFECT
+      INT_VAR opcode = 171 target = 1 resist_dispel = 0 timing = 4 duration = 6
+      STR_VAR resource = ZKPWHA4
+  END
+
+COPY ~PlagueWielder/spl/ZKPWHA4A.spl~ override
+
+COPY ~PlagueWielder/spl/ZKPWHA5.spl~ override
+  SAY 0x8 ~Summon Plague Avatar~
+  SAY 0xc ~Summon Plague Avatar~
+  WRITE_SHORT 0x1c 4
+  WRITE_ASCII 0x10 ~CAS_M07~
+  WRITE_SHORT 0x22 9
+  
+  SAY 0x54 ~Summons a Plague Avatar.~
+  SAY 0x50 ~Summons a Plague Avatar.~
+
+COPY ~PlagueWielder/cre/ZKPWHA5.cre~ override
+  SAY 0x8 ~Plague Avatar~
+  SAY 0xc ~Plague Avatar~
+
+COPY ~PlagueWielder/itm/ZKPWHA5.itm~ override
+COPY ~PlagueWielder/eff/ZKPWHA5.eff~ override
+
+
+
+//Credit to Subtledoctor for this function to make a map of spells, schools and scrools
+ACTION_IF NOT FILE_EXISTS_IN_GAME ~qdscrlmap.2da~ BEGIN
+
+<<<<<<<< QD/qdscrlmap.2da
+2DA V1.0 
+SPLRES	ITMRES	SCHOOL
+>>>>>>>> 
+
+  COPY ~PlagueWielder/2da/qdscrlmap.2da~ ~override/qdscrlmap.2da~ 
+
+COPY_EXISTING_REGEXP GLOB ~.*\.itm~ ~override~ 
+  PATCH_IF (SOURCE_SIZE > 0x71) BEGIN 
+    GET_OFFSET_ARRAY headers ITM_V10_HEADERS
+    PHP_EACH headers AS int => hoff BEGIN 
+      GET_OFFSET_ARRAY2 fx hoff ITM_V10_HEAD_EFFECTS
+      PHP_EACH fx AS intj => foff BEGIN 
+        READ_SHORT foff opcode 
+        PATCH_IF (opcode = 147) BEGIN 
+          READ_ASCII (foff + 0x14) splres
+          INNER_PATCH_FILE ~%splres%.spl~ BEGIN
+            READ_BYTE 0x25 spl_school
+          END
+          PATCH_IF (%spl_school% = 0) BEGIN
+            TEXT_SPRINT splschool ~none~
+          END
+          PATCH_IF (%spl_school% = 1) BEGIN
+            TEXT_SPRINT splschool ~abjuration~
+          END
+          PATCH_IF (%spl_school% = 2) BEGIN
+            TEXT_SPRINT splschool ~conjuration~
+          END
+          PATCH_IF (%spl_school% = 3) BEGIN
+            TEXT_SPRINT splschool ~divination~
+          END
+          PATCH_IF (%spl_school% = 4) BEGIN
+            TEXT_SPRINT splschool ~enchantment~
+          END
+          PATCH_IF (%spl_school% = 5) BEGIN
+            TEXT_SPRINT splschool ~illusion~
+          END
+          PATCH_IF (%spl_school% = 6) BEGIN
+            TEXT_SPRINT splschool ~evocation~
+          END
+          PATCH_IF (%spl_school% = 7) BEGIN
+            TEXT_SPRINT splschool ~necromancy~
+          END
+          PATCH_IF (%spl_school% = 8) BEGIN
+            TEXT_SPRINT splschool ~alteration~
+          END
+          PATCH_IF (%spl_school% = 9) BEGIN
+            TEXT_SPRINT splschool ~generalist~
+          END
+          PATCH_IF NOT (FILE_CONTAINS_EVALUATED (~qdscrlmap.2da~ ~%SOURCE_RES%~)) BEGIN
+            INNER_ACTION BEGIN 
+              APPEND ~qdscrlmap.2da~ ~%splres%	%SOURCE_RES% 	%splschool% ~
+            END
+          END 
+        END 
+      END 
+    END 
+  END 
+
+COPY_EXISTING ~qdscrlmap.2da~ ~override~
+  PRETTY_PRINT_2DA
+
+END
+
+
+
+ADD_KIT ~ZKPW~
+  ~ZKPW 1 1 1 1 1 1 1 1~
+  ~ZKPW 0 1 0 0 1 0 0 1 0 0 0 0 0 0 0 1 0 0 0 0 0 0 1 0 0 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0~
+  ~ZKPW 0 0 0 10 0 0~
+  ~ZKPW 0 0 0 0 0 -1~
+  ~ZKPW 0 0 0 0 0 0~
+  ~ZKPW 0 0 0 17 0 0~
+  ~ZKPW 0 0 1 0 1 1 0 1 1~
+  ~ZKPW 1 1 0 0 0 0~
+  ~PlagueWielder/2da/ZKPWCLAB.2da~
+  ~K_M_H	K_M_D   K_M_G   K_M_E   K_M_HE   K_M_HL   K_M_HO~
+  ~0x00000000 1~
+  ~ZKPW~
+  ~* * * BAG28 * * * BOOT01 AMUL17 * * AROW11,80 * * * * * DAGG12 SW1H28 *~    
+  SAY ~Plague Wielder~
+  SAY ~Plague Wielder~
+  SAY ~Plague Wielder:
+  The Plague wielder is a Mage kit that uses mostly diseases to fight enemies.
+  Kit features:
+  +1 Spell per level
+  Limited spell access: Can only use Alteration, Abjuration and Illusion spells
+  Whenever a new level of spells become accessible, learns the Plague Wielder spells for that level.
+  At level 5, gains immunity to Disease.
+  At level 7, gains immunity to Poison.
+  At level 10, gains immunity to Level Drain.
+  Contamination:
+  Contamination is a status that can only be applied by a Plague Wielder. The contamination status reduces infected targets' resistances by 10%. It also serves as a channel for the Plague Wielder's unique spells.  Undead are immune to contamination. The duration varies depending on the Plague Wielder's level and the target's constitution.
+  Most of the Plague Wielder's specific spells either help apply Contamination or thrive off of it. The Plague Wielder also gets access to a Contamination cantrip that applies the Contamination status on a single target, unless they successfully Save vs Death. The Saving throw malus starts at 0, increasing by -1 every other level. This effect cannot be resisted through Magic Resistance. It is considered as a spell of the maximum level the caster knows.~
+
+LAF fl#add_kit_ee
+  INT_VAR
+    biography = 29492
+    briefdesc = RESOLVE_STR_REF (~The Plague wielder is a Mage kit that uses mostly diseases to fight enemies.~)
+    fallen = 0
+    fallen_notice = RESOLVE_STR_REF (~Covid-19 was eradicated.~)
+  STR_VAR
+    kit_name = ~ZKPW~
+    clswpbon = ~1 0 3~
+    numwslot = ~2~
+    clascolr = ~35 67 67 25 80~
+    clasiskl = ~0 0 0 0 0 0 0~
+    hpclass = ~HPWIZ~
+    clsrcreq = ~1 1 1 1 1 1 1~
+    clasthac = ~0~
+END
+
+DEFINE_ACTION_FUNCTION FORBID_SCHOOL STR_VAR school = ~~ kit = ~~ BEGIN
+  COPY ~override/qdscrlmap.2da~ ~override/qdscrlmap.2da~
+    COUNT_2DA_ROWS 1 rows
+    READ_2DA_ENTRIES_NOW map 1
+    FOR (i = 0; i < rows; ++i) BEGIN
+      READ_2DA_ENTRY_FORMER map i 0 ~res~
+      READ_2DA_ENTRY_FORMER map i 1 ~scrl~
+      READ_2DA_ENTRY_FORMER map i 2 ~schl~
+      INNER_ACTION BEGIN
+        ACTION_IF ~%schl%~ STRING_EQUAL ~%school%~ THEN BEGIN
+          LAF ADD_CLASS_SPELL STR_VAR resref=EVAL ~%res%~ scroll=EVAL ~%scrl%~ kit_exclude=EVAL ~{'%kit%'}~ END
+        END
+      END
+    END
+  END
+
+
+LAF FORBID_SCHOOL  STR_VAR school= ~evocation~ kit = "ZKPW" END
+LAF FORBID_SCHOOL  STR_VAR school= ~necromancy~ kit = "ZKPW"  END
+LAF FORBID_SCHOOL  STR_VAR school= ~enchantment~ kit = "ZKPW" END
+LAF FORBID_SCHOOL  STR_VAR school= ~conjuration~ kit = "ZKPW" END
+LAF FORBID_SCHOOL  STR_VAR school= ~invocation~ kit = "ZKPW" END

@@ -1,0 +1,42 @@
+1- Create contamination spells with duration: 8,12,18,24,30,35,40,50,60,70,80,90,100,110,120,130,140,150
+2- Create main contamination spell based on table to use the right spells
+3- Create undead check spell
+4- Create saving throw spell (= contamination cantrip)
+5- Create passive spells, including level up spell to clean the book of spells that should not have been learnt
+5bis - Create CLAB
+6- Create normal spells
+7- Create HLA
+8- Block usage of scrolls of incorrect school
+
+
+
+1:
+Append spell state to IDS: Contamination (index set dynamically) DONE
+Create standard spell with effects: DONE
+    -10% resistance to all damage
+    set spell state contamination
+Iterate over various duration to set duration in standard spell and create new spell with each. DONE
+    For each, add effect to remove all contaminations
+
+2: 
+Create 2DA with all values for every constitution amount and caster level DONE
+Create spell and add spell ability for each level, then spell effects by iterating over constitution DONE
+Each spell must cancel the effect of every other contamination spell DONE through 1
+
+3: Create a spell that checks for undeath and if not undead, apply 2: through opcode 326 DONE
+
+4: Same as 3:, except it checks for save and applies 3: DONE
+
+5:
+5-1: Learn all the PW spells: Pending creation of said spells TODO
+5-2: +1 spell per level DONE
+5-3: Immunity to Disease DONE
+5-4: Immunity to Poison DONE
+5-5: Immunity to Level Drain DONE
+
+5bis: DONE
+
+6: Done everything
+7: Done everything
+
+8: TODO
